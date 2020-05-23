@@ -71,6 +71,12 @@ class Nucleus {
   /// x-direction.
   void sample_nucleons(double offset);
 
+  /// The number of nucleons that could not be acceptably placed in a
+  /// reasonable number of tries.  Such nucleons are still placed in the
+  /// nucleus, but at a location that does not respect d_min.
+  int failures() const
+  { return failures_; }
+
   using size_type = std::vector<NucleonData>::size_type;
   using iterator = std::vector<NucleonData>::iterator;
   using const_iterator = std::vector<NucleonData>::const_iterator;
@@ -110,6 +116,14 @@ class Nucleus {
   /// \endrst
   void set_nucleon_position(NucleonData& nucleon, double x, double y, double z);
 
+  /// Reset the number of nucleon placement failures.
+  /// Derived classes call this function before nucleon sampling.
+  void clear_failures();
+
+  /// Records a nucleon placement failure.
+  /// Derived classes call this function during nucleon sampling.
+  void record_failure();
+
  private:
   /// Internal interface to the actual implementation of the nucleon sampling
   /// algorithm, used in public function sample_nucleons().  This function must
@@ -124,6 +138,12 @@ class Nucleus {
   /// This variable is reset upon each call of sample_nucleons() and is read by
   /// set_nucleon_position().
   double offset_;
+
+ protected:
+  /// Number of nucleon placement failures.
+  /// If nucleon placement "fails," the nucleon is still placed in the nucleus,
+  /// but at a location that does not respect d_min.
+  int failures_;
 };
 
 // Now declare Nucleus subclasses.

@@ -12,6 +12,8 @@
 #include <utility>
 
 #include <boost/math/constants/constants.hpp>
+#include <boost/algorithm/string/predicate.hpp>
+#include <boost/tokenizer.hpp>
 #ifdef TRENTO_HDF5
 // include multi_array for use with ManualNucleus
 #ifdef NDEBUG
@@ -24,6 +26,57 @@
 #include "random.h"
 
 namespace trento {
+
+namespace {
+
+bool isWoodsSaxonString(const std::string& species) {
+  return (boost::starts_with(species, "WS:") || boost::starts_with(species, "DWS:"));
+}
+
+Nucleus* createFromWoodsSaxonString(const std::string& species, double nucleon_dmin) {
+  try {
+    bool deformed;
+    if (boost::starts_with(species, "WS:"))
+      deformed = false;
+    else if (boost::starts_with(species, "DWS:"))
+      deformed = true;
+    else throw std::invalid_argument{"Woods-Saxon string must begin with WS: or DWS:"};
+
+    auto paramstr = species.substr(species.find(':') + 1);  // skip prefix; note that this needs to be an explicit variable declaration so that string remains alive while tokenizer is reading from it
+    boost::char_separator<char> sep(",", "", boost::keep_empty_tokens); 
+    boost::tokenizer<boost::char_separator<char>> tokens(paramstr, sep);
+
+    auto it = tokens.begin();
+    if (it == tokens.end())
+      throw std::invalid_argument{"A is missing"};
+
+    int n = std::stoi(*it);  // stoi throws if token isn't an integer
+    if (n <= 0)
+      throw std::invalid_argument{"A must be a positive integer"};  
+
+    std::vector<double> params;
+    for (++it; it != tokens.end(); ++it)
+      params.push_back(std::stod(*it));  // stod throws if token isn't a real number
+
+    if (params.size() != (deformed ? 4 : 2))
+      throw std::invalid_argument{"invalid parameter string"};
+
+    if (params[0] <= 0.)
+      throw std::invalid_argument{"R must be positive"};
+    if (params[0] < 0.)
+      throw std::invalid_argument{"a cannot be negative"};
+
+    if (deformed)
+      return new DeformedWoodsSaxonNucleus(static_cast<unsigned int>(n), params[0], params[1], params[2], params[3], nucleon_dmin);
+    else return new WoodsSaxonNucleus(static_cast<unsigned int>(n), params[0], params[1], nucleon_dmin);
+  }
+  catch (const std::out_of_range&) { }
+  catch (const std::invalid_argument&) { }
+
+  throw std::invalid_argument{"species must be of the form 'WS:A,R,a' or 'DWS:A,R,a,beta2,beta4', with 'A' a positive integer, 'R' positive, and 'a' non-negative"};
+}
+
+}  // unnamed namespace
 
 NucleusPtr Nucleus::create(const std::string& species, double nucleon_dmin) {
   // W-S params ref. in header
@@ -72,6 +125,8 @@ NucleusPtr Nucleus::create(const std::string& species, double nucleon_dmin) {
     return NucleusPtr{new DeformedWoodsSaxonNucleus{
       238, 6.67, 0.440, 0.280, 0.093, nucleon_dmin
     }};
+  else if (isWoodsSaxonString(species))
+    return NucleusPtr{createFromWoodsSaxonString(species, nucleon_dmin)};
   // Read nuclear configurations from HDF5.
   else if (hdf5::filename_is_hdf5(species)) {
 #ifdef TRENTO_HDF5
@@ -84,7 +139,7 @@ NucleusPtr Nucleus::create(const std::string& species, double nucleon_dmin) {
     throw std::invalid_argument{"unknown projectile species: " + species};
 }
 
-Nucleus::Nucleus(std::size_t A) : nucleons_(A), offset_(0) {}
+Nucleus::Nucleus(std::size_t A) : nucleons_(A), offset_(0), failures_(0) {}
 
 void Nucleus::sample_nucleons(double offset) {
   offset_ = offset;
@@ -94,6 +149,14 @@ void Nucleus::sample_nucleons(double offset) {
 void Nucleus::set_nucleon_position(
     NucleonData& nucleon, double x, double y, double z) {
   nucleon.set_position(x + offset_, y, z);
+}
+
+void Nucleus::clear_failures() {
+  failures_ = 0;
+}
+
+void Nucleus::record_failure() {
+  ++failures_;
 }
 
 Proton::Proton() : Nucleus(1) {}
@@ -212,13 +275,15 @@ void WoodsSaxonNucleus::sample_nucleons_impl() {
   std::sort(radii.begin(), radii.end());
 
   // Place each nucleon at a pre-sampled radius.
+  clear_failures();
+
   auto r_iter = radii.cbegin();
   for (iterator nucleon = begin(); nucleon != end(); ++nucleon) {
     // Get radius and advance iterator.
     auto& r = *r_iter++;
 
     // Sample angles until the minimum distance criterion is satisfied.
-    auto ntries = 0;
+    auto ntries = 1000;
     do {
       // Sample isotropic spherical angles.
       auto cos_theta = random::cos_theta<double>();
@@ -240,7 +305,10 @@ void WoodsSaxonNucleus::sample_nucleons_impl() {
       //          1.0 fm, ~0.005%
       //          1.5 fm, ~0.1%
       //          1.73 fm, ~1%
-    } while (++ntries < 1000 && is_too_close(nucleon));
+    } while (is_too_close(nucleon) && --ntries > 0);  // 'ntries' will not decrement if 'is_too_close' returns false, important for failure check below
+
+    if (!(ntries > 0))
+      record_failure();
   }
   // XXX: re-center nucleon positions?
 }
@@ -335,6 +403,8 @@ void DeformedWoodsSaxonNucleus::sample_nucleons_impl() {
   );
 
   // Place each nucleon at a pre-sampled (r, cos_theta).
+  clear_failures();
+
   auto sample = samples.cbegin();
   for (iterator nucleon = begin(); nucleon != end(); ++nucleon, ++sample) {
     auto& r = sample->r;
@@ -344,7 +414,7 @@ void DeformedWoodsSaxonNucleus::sample_nucleons_impl() {
     auto z = r * cos_theta;
 
     // Sample azimuthal angle until the minimum distance criterion is satisfied.
-    auto ntries = 0;
+    auto ntries = 1000;
     do {
       // Choose azimuthal angle.
       auto phi = random::phi<double>();
@@ -375,7 +445,10 @@ void DeformedWoodsSaxonNucleus::sample_nucleons_impl() {
       //          1.0 fm, ~0.03%
       //          1.3 fm, ~0.3%
       //          1.5 fm, ~1.2%
-    } while (++ntries < 1000 && is_too_close(nucleon));
+    } while (is_too_close(nucleon) && --ntries > 0);  // 'ntries' will not decrement if 'is_too_close' returns false, important for failure check below
+
+    if (!(ntries > 0))
+      record_failure();
   }
 }
 
