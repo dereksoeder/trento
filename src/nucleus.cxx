@@ -29,11 +29,11 @@ namespace trento {
 
 namespace {
 
-bool isWoodsSaxonString(const std::string& species) {
+bool is_Woods_Saxon_string(const std::string& species) {
   return (boost::starts_with(species, "WS:") || boost::starts_with(species, "DWS:"));
 }
 
-Nucleus* createFromWoodsSaxonString(const std::string& species, double nucleon_dmin) {
+Nucleus* create_from_Woods_Saxon_string(const std::string& species, double nucleon_dmin) {
   try {
     bool deformed;
     if (boost::starts_with(species, "WS:"))
@@ -43,7 +43,7 @@ Nucleus* createFromWoodsSaxonString(const std::string& species, double nucleon_d
     else throw std::invalid_argument{"Woods-Saxon string must begin with WS: or DWS:"};
 
     auto paramstr = species.substr(species.find(':') + 1);  // skip prefix; note that this needs to be an explicit variable declaration so that string remains alive while tokenizer is reading from it
-    boost::char_separator<char> sep(",", "", boost::keep_empty_tokens); 
+    boost::char_separator<char> sep(",", "", boost::keep_empty_tokens);
     boost::tokenizer<boost::char_separator<char>> tokens(paramstr, sep);
 
     auto it = tokens.begin();
@@ -52,18 +52,22 @@ Nucleus* createFromWoodsSaxonString(const std::string& species, double nucleon_d
 
     int n = std::stoi(*it);  // stoi throws if token isn't an integer
     if (n <= 0)
-      throw std::invalid_argument{"A must be a positive integer"};  
+      throw std::invalid_argument{"A must be a positive integer"};
 
     std::vector<double> params;
-    for (++it; it != tokens.end(); ++it)
+    for (++it; it != tokens.end(); ++it) {
+      auto d = std::stod(*it);
+      if (!std::isfinite(d))
+        throw std::invalid_argument{"invalid real number"};
       params.push_back(std::stod(*it));  // stod throws if token isn't a real number
+    }
 
     if (params.size() != (deformed ? 4 : 2))
       throw std::invalid_argument{"invalid parameter string"};
 
     if (params[0] <= 0.)
       throw std::invalid_argument{"R must be positive"};
-    if (params[0] < 0.)
+    if (params[1] < 0.)
       throw std::invalid_argument{"a cannot be negative"};
 
     if (deformed)
@@ -125,8 +129,8 @@ NucleusPtr Nucleus::create(const std::string& species, double nucleon_dmin) {
     return NucleusPtr{new DeformedWoodsSaxonNucleus{
       238, 6.67, 0.440, 0.280, 0.093, nucleon_dmin
     }};
-  else if (isWoodsSaxonString(species))
-    return NucleusPtr{createFromWoodsSaxonString(species, nucleon_dmin)};
+  else if (is_Woods_Saxon_string(species))
+    return NucleusPtr{create_from_Woods_Saxon_string(species, nucleon_dmin)};
   // Read nuclear configurations from HDF5.
   else if (hdf5::filename_is_hdf5(species)) {
 #ifdef TRENTO_HDF5

@@ -139,7 +139,6 @@ class Nucleus {
   /// set_nucleon_position().
   double offset_;
 
- protected:
   /// Number of nucleon placement failures.
   /// If nucleon placement "fails," the nucleon is still placed in the nucleus,
   /// but at a location that does not respect d_min.
