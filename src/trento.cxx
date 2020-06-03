@@ -12,6 +12,7 @@
 #include <boost/program_options.hpp>
 
 #include "collider.h"
+#include "eventqty.h"
 #include "fwd_decl.h"
 
 // CMake sets this definition.
@@ -102,7 +103,13 @@ int main(int argc, char* argv[]) {
     ("no-header", po::bool_switch(),
      "do not write headers to text files")
     ("ncoll", po::bool_switch(),
-     "calculate binary collisions");
+     "calculate binary collisions")
+    ("columns", po::value<EventQuantityList>()->value_name("list")->multitoken()
+     ->default_value(DefaultEventQuantityList, "nevent,b,npart,mult,e2,e3,e4,e5"),
+     "event quantities to output")
+    ("event-writer", po::value<std::vector<std::string>>()->value_name("directives")->multitoken()
+     ->default_value({ "" }, "default"),
+     "configure additional event output writer(s)");
 
   OptDesc phys_opts{"physical options"};
   phys_opts.add_options()
@@ -225,6 +232,23 @@ int main(int argc, char* argv[]) {
     // Set default constituent width equal to the nucleon width.
     if (var_map["constit-width"].defaulted()) {
       var_map.at("constit-width").value() = var_map["nucleon-width"].as<double>();
+    }
+
+    // Reconcile `--ncoll` and `--columns` options.
+    if (var_map["columns"].defaulted()) {
+      if (var_map["ncoll"].as<bool>()) {
+        //      default:  `nevent b npart mult e2 e3 e4 e5`
+        // with --ncoll:  `nevent b npart ncoll mult e2 e3 e4 e5`
+        auto& qtys = var_map.at("columns").as<EventQuantityList>().values;
+        qtys.insert(std::find(std::begin(qtys), std::end(qtys), EventMultiplicity), EventNumCollisions);
+      }
+    }
+    else {
+      if (!var_map["ncoll"].defaulted())
+        throw po::error{"when using the columns option, specify ncoll as a column"};
+
+      const auto& qtys = var_map["columns"].as<EventQuantityList>().values;
+      var_map.at("ncoll").value() = (std::find(std::begin(qtys), std::end(qtys), EventNumCollisions) != std::end(qtys));
     }
 
     double nucleon_width = var_map["nucleon-width"].as<double>();

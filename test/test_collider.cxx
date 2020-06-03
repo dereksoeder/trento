@@ -9,6 +9,7 @@
 
 #include <iostream>
 
+#include "../src/eventqty.h"
 #include "../src/nucleus.h"
 
 using namespace trento;
@@ -34,6 +35,7 @@ TEST_CASE( "collider" ) {
     {"constit-width", 0.5},
     {"constit-number", 1},
     {"nucleon-min-dist", 0.},
+    {"columns", DefaultEventQuantityList},
   });
 
   std::vector<int> nevent, npart;
@@ -99,6 +101,7 @@ TEST_CASE( "fixed impact parameter" ) {
     {"constit-width", 0.5},
     {"constit-number", 1},
     {"nucleon-min-dist", 0.2},
+    {"columns", DefaultEventQuantityList},
   });
 
   std::vector<double> impact;
@@ -148,6 +151,7 @@ const auto seed = static_cast<int64_t>(std::random_device{}());
         {"constit-width", 0.5},
         {"constit-number", 1},
         {"nucleon-min-dist", 0.4},
+        {"columns", DefaultEventQuantityList},
       })};
 
       capture_stdout capture;
@@ -182,6 +186,9 @@ TEST_CASE( "binary collisions" ) {
     {"constit-width", 0.5},
     {"constit-number", 1},
     {"nucleon-min-dist", 0.},
+    {"columns", EventQuantityList {  // manually insert `ncoll` as the fourth column
+      EventNumber, EventImpactParameter, EventNumParticipants, EventNumCollisions, EventMultiplicity,
+      EventQuantity_Epsilon_n(2), EventQuantity_Epsilon_n(3), EventQuantity_Epsilon_n(4), EventQuantity_Epsilon_n(5) }},
   });
 
   std::vector<int> nevent, npart, ncoll;

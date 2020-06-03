@@ -67,8 +67,8 @@ Collider::Collider(const VarMap& var_map)
       bmin_(var_map["b-min"].as<double>()),
       bmax_(determine_bmax(var_map, *nucleusA_, *nucleusB_, nucleon_common_)),
       asymmetry_(determine_asym(*nucleusA_, *nucleusB_)),
-      event_(var_map),
-      output_(var_map) {
+      output_(var_map),
+      event_(var_map, output_.required_quantities()) {
   // Constructor body begins here.
   // Set random seed if requested.
   auto seed = var_map["random-seed"].as<int64_t>();
@@ -80,6 +80,8 @@ Collider::Collider(const VarMap& var_map)
 Collider::~Collider() = default;
 
 void Collider::run_events() {
+  output_.start();
+
   // The main event loop.
   for (int n = 0; n < nevents_; ++n) {
     // Sampling the impact parameter also implicitly prepares the nuclei for
@@ -92,9 +94,16 @@ void Collider::run_events() {
     // (thickness grid) and other event observables.
     event_.compute(*nucleusA_, *nucleusB_, nucleon_common_);
 
+    // Store external quantities in the event for outputting.
+    event_.set_nevent(n);
+    event_.set_impact_parameter(b);
+    event_.set_ncoll(ncoll);
+
     // Write event data.
-    output_(n, b, ncoll, event_);
+    output_(event_);
   }
+
+  output_.finish();
 }
 
 std::tuple<double, int> Collider::sample_collision() {

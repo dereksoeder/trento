@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <complex>
 
 #include <boost/program_options/variables_map.hpp>
 
@@ -14,6 +15,8 @@
 namespace trento {
 
 namespace {
+
+typedef std::complex<double> complex_t;
 
 constexpr double TINY = 1e-12;
 
@@ -36,7 +39,41 @@ inline double geometric_mean(double a, double b) {
   return std::sqrt(a*b);
 }
 
+inline int get_max_eccentricity_m(const std::vector<EventQuantity>& quantities) {
+  int max_m = -1;
+  bool foundmn = false;
+
+  for (auto qty : quantities) {
+    if (EventQuantity_GetClass(qty) == EventEpsilon_mn) {
+      int m = EventQuantity_GetSubscript1(qty);
+      int n = EventQuantity_GetSubscript2(qty);
+
+      max_m = std::max(max_m, m);
+      foundmn = (foundmn || (m != n));
+    }
+  }
+
+  return (foundmn ? max_m : -1);
+}
+
+inline int get_max_eccentricity_n(const std::vector<EventQuantity>& quantities) {
+  int max_n = -1;
+
+  for (auto qty : quantities) {
+    if (EventQuantity_GetClass(qty) == EventEpsilon_mn) {
+      int n = EventQuantity_GetSubscript2(qty);
+      max_n = std::max(max_n, n);
+    }
+  }
+
+  return max_n;
+}
+
 }  // unnamed namespace
+
+Event::Event(const VarMap& var_map)                                    // this constructor assumes that only quantities being displayed need to
+  : Event(var_map, var_map["columns"].as<EventQuantityList>().values)  //   be computed; retained for code compatibility but should not be used
+{ }
 
 // Determine the grid parameters like so:
 //   1. Read and set step size from the configuration.
@@ -45,14 +82,18 @@ inline double geometric_mean(double a, double b) {
 //   3. Set the actual grid max as max = nsteps*step/2.  Hence if the step size
 //      does not evenly divide the config max, the actual max will be marginally
 //      larger (by at most one step size).
-Event::Event(const VarMap& var_map)
+Event::Event(
+  const VarMap& var_map,
+  const std::vector<EventQuantity>& required_quantities)
     : norm_(var_map["normalization"].as<double>()),
       dxy_(var_map["grid-step"].as<double>()),
       nsteps_(std::ceil(2.*var_map["grid-max"].as<double>()/dxy_)),
       xymax_(.5*nsteps_*dxy_),
       TA_(boost::extents[nsteps_][nsteps_]),
       TB_(boost::extents[nsteps_][nsteps_]),
-      TR_(boost::extents[nsteps_][nsteps_]) {
+      TR_(boost::extents[nsteps_][nsteps_]),
+      max_eccentricity_m_(get_max_eccentricity_m(required_quantities)),
+      max_eccentricity_n_(get_max_eccentricity_n(required_quantities)) {
   // Choose which version of the generalized mean to use based on the
   // configuration.  The possibilities are defined above.  See the header for
   // more information.
@@ -83,6 +124,9 @@ void Event::compute(const Nucleus& nucleusA, const Nucleus& nucleusB,
   compute_nuclear_thickness(nucleusB, nucleon_common, TB_);
   compute_reduced_thickness_();
   compute_observables();
+
+  failuresA_ = nucleusA.failures();
+  failuresB_ = nucleusB.failures();
 }
 
 namespace {
@@ -162,90 +206,136 @@ void Event::compute_reduced_thickness(GenMean gen_mean) {
   iycm_ = iycm / sum;
 }
 
-void Event::compute_observables() {
+void Event::compute_en(int max_n) {
   // Compute eccentricity.
+  if (max_n < MinEccentricityHarmonic || max_n > MaxEccentricityHarmonic)
+    throw std::invalid_argument{"max_n"};
 
   // Simple helper class for use in the following loop.
   struct EccentricityAccumulator {
-    double re = 0.;  // real part
-    double im = 0.;  // imaginary part
+    complex_t z = 0.;
     double wt = 0.;  // weight
     double finish() const  // compute final eccentricity
-    { return std::sqrt(re*re + im*im) / std::fmax(wt, TINY); }
-  } e2, e3, e4, e5;
+    { return std::abs(z) / std::fmax(wt, TINY); }
+  } en[NumEccentricityHarmonics];
 
   for (int iy = 0; iy < nsteps_; ++iy) {
+    auto y = static_cast<double>(iy) - iycm_;
+    auto y2 = y*y;
+
     for (int ix = 0; ix < nsteps_; ++ix) {
       const auto& t = TR_[iy][ix];
       if (t < TINY)
         continue;
 
-      // Compute (x, y) relative to the CM and cache powers of x, y, r.
+      // Compute `r` relative to the CM.
       auto x = static_cast<double>(ix) - ixcm_;
-      auto x2 = x*x;
-      auto x3 = x2*x;
-      auto x4 = x2*x2;
-
-      auto y = static_cast<double>(iy) - iycm_;
-      auto y2 = y*y;
-      auto y3 = y2*y;
-      auto y4 = y2*y2;
-
-      auto r2 = x2 + y2;
-      auto r = std::sqrt(r2);
-      auto r4 = r2*r2;
-
-      auto xy = x*y;
-      auto x2y2 = x2*y2;
+      auto r = std::sqrt(x*x + y2);
 
       // The eccentricity harmonics are weighted averages of r^n*exp(i*n*phi)
-      // over the entropy profile (reduced thickness).  The naive way to compute
-      // exp(i*n*phi) at a given (x, y) point is essentially:
+      // over the entropy profile (reduced thickness).  Note that:
       //
-      //   phi = arctan2(y, x)
-      //   real = cos(n*phi)
-      //   imag = sin(n*phi)
+      //   r^n * exp(i*n*phi)  =  r^n * exp(i*phi)^n
+      //                       =  (r*exp(i*phi))^n
+      //                       =  (x + i*y)^n
       //
-      // However this implementation uses three unnecessary trig functions; a
-      // much faster method is to express the cos and sin directly in terms of x
-      // and y.  For example, it is trivial to show (by drawing a triangle and
-      // using rudimentary trig) that
-      //
-      //   cos(arctan2(y, x)) = x/r = x/sqrt(x^2 + y^2)
-      //   sin(arctan2(y, x)) = y/r = x/sqrt(x^2 + y^2)
-      //
-      // This is easily generalized to cos and sin of (n*phi) by invoking the
-      // multiple angle formula, e.g. sin(2x) = 2sin(x)cos(x), and hence
-      //
-      //   sin(2*arctan2(y, x)) = 2*sin(arctan2(y, x))*cos(arctan2(y, x))
-      //                        = 2*x*y / r^2
-      //
-      // Which not only eliminates the trig functions, but also naturally
-      // cancels the r^2 weight.  This cancellation occurs for all n.
-      //
-      // The Event unit test verifies that the two methods agree.
-      e2.re += t * (y2 - x2);
-      e2.im += t * 2.*xy;
-      e2.wt += t * r2;
+      // The Event unit test verifies that this method agrees with the
+      // trigonometric function method.
+      auto z    = complex_t{x, y};
+      auto enz  = t * z;
+      auto enwt = t * r;
 
-      e3.re += t * (y3 - 3.*y*x2);
-      e3.im += t * (3.*x*y2 - x3);
-      e3.wt += t * r2*r;
-
-      e4.re += t * (x4 + y4 - 6.*x2y2);
-      e4.im += t * 4.*xy*(y2 - x2);
-      e4.wt += t * r4;
-
-      e5.re += t * y*(5.*x4 - 10.*x2y2 + y4);
-      e5.im += t * x*(x4 - 10.*x2y2 + 5.*y4);
-      e5.wt += t * r4*r;
+      for (int i = MinEccentricityHarmonic; i <= max_n; ++i) {
+        en[i - MinEccentricityHarmonic].z  += (enz  *= z);
+        en[i - MinEccentricityHarmonic].wt += (enwt *= r);
+      }
     }
   }
 
-  eccentricity_[2] = e2.finish();
-  eccentricity_[3] = e3.finish();
-  eccentricity_[4] = e4.finish();
-  eccentricity_[5] = e5.finish();
+  for (int n = MinEccentricityHarmonic; n <= max_n; ++n)
+    eccentricity_[n] = eccentricity_mn_[std::make_pair(n,n)] = en[n - MinEccentricityHarmonic].finish();
+}
+
+void Event::compute_emn(int max_m, int max_n) {
+  // Compute eccentricity.
+  if (max_m < MinEccentricityHarmonic || max_m > MaxEccentricityHarmonic)
+    throw std::invalid_argument{"max_m"};
+
+  if (max_n < MinEccentricityHarmonic || max_n > MaxEccentricityHarmonic)
+    throw std::invalid_argument{"max_n"};
+
+  // Simple helper class for use in the following loop.
+  complex_t emn[NumEccentricityHarmonics][NumEccentricityHarmonics] = { };  // important: initializes to zeroes
+  double weights[NumEccentricityHarmonics] = { };
+
+  for (int iy = 0; iy < nsteps_; ++iy) {
+    auto y = static_cast<double>(iy) - iycm_;
+    auto y2 = y*y;
+
+    for (int ix = 0; ix < nsteps_; ++ix) {
+      const auto& t = TR_[iy][ix];
+      if (t < TINY)
+        continue;
+
+      // Compute `r` relative to the CM.
+      auto x = static_cast<double>(ix) - ixcm_;
+      auto r = std::sqrt(x*x + y2);
+
+      auto wt = t * r;  // initialize to `(t * r)` and multiply `r` again at top of `m` loop, since `m` starts at 2
+      for (int m = MinEccentricityHarmonic; m <= max_m; ++m)       // (note: `MinEccentricityHarmonic = 2` assumed)
+        weights[m - MinEccentricityHarmonic] += (wt *= r);
+
+      // The eccentricity harmonics are weighted averages of `r^m*exp(i*n*phi)`
+      // over the entropy profile (reduced thickness).  Note that:
+      //
+      //   r^m * exp(i*n*phi)  =  r^m * exp(i*phi)^n
+      //                       =  r^(m-n) * (r*exp(i*phi))^n
+      //                       =  r^(m-n) * (x + i*y)^n
+      //
+      auto z = complex_t{x, y};
+      auto zfactor = t * z;  // initialize to `(t * z)` and multiply `z` again at top of `n` loop, since `n` starts at 2
+
+      for (int n = MinEccentricityHarmonic; n <= MaxEccentricityHarmonic; n++) {  // (note: `MinEccentricityHarmonic = 2` assumed)
+        zfactor *= z;
+
+        double rfactor;
+
+        if (r > TINY) {  // ignore this pixel if `r ~ 0` here; it would be nugatory in an integral but causes problems for our sum
+          rfactor = 1.;  // initialize to 1 and divide `r` at top of `m` loop, since `(m - n)` starts at -1 and counts down
+
+          for (int m = n - 1; m >= MinEccentricityHarmonic; --m) {
+            rfactor /= r;
+            emn[m - MinEccentricityHarmonic][n - MinEccentricityHarmonic] += rfactor * zfactor;
+          }
+
+          rfactor = 1.;  // now initialize to 1 and multiply `r` at bottom of `m` loop, since `(m - n)` now starts at 0 and counts up
+
+          for (int m = n; m <= MaxEccentricityHarmonic; ++m) {
+            emn[m - MinEccentricityHarmonic][n - MinEccentricityHarmonic] += rfactor * zfactor;
+            rfactor *= r;
+          }
+        }
+      }
+    }
+  }
+
+  for (int m = MinEccentricityHarmonic; m <= max_m; ++m) {
+    double wt = std::fmax(weights[m - MinEccentricityHarmonic], TINY);
+
+    for (int n = MinEccentricityHarmonic; n <= max_n; ++n)
+      eccentricity_mn_[std::make_pair(m,n)] = std::abs(emn[m - MinEccentricityHarmonic][n - MinEccentricityHarmonic]) / wt;
+
+    if (m <= max_n)  // also update `eccentricity_` for `m == n` if applicable
+      eccentricity_[m] = std::abs(emn[m - MinEccentricityHarmonic][m - MinEccentricityHarmonic]) / wt;
+  }
+}
+
+void Event::compute_observables() {
+  if (max_eccentricity_n_ >= 0) {
+    if (max_eccentricity_m_ >= 0)
+      compute_emn(max_eccentricity_m_, max_eccentricity_n_);
+    else compute_en(max_eccentricity_n_);
+  }
 }
 
 }  // namespace trento

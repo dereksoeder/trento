@@ -56,10 +56,10 @@ Nucleus* create_from_Woods_Saxon_string(const std::string& species, double nucle
 
     std::vector<double> params;
     for (++it; it != tokens.end(); ++it) {
-      auto d = std::stod(*it);
+      auto d = std::stod(*it);  // stod throws if token isn't a real number
       if (!std::isfinite(d))
         throw std::invalid_argument{"invalid real number"};
-      params.push_back(std::stod(*it));  // stod throws if token isn't a real number
+      params.push_back(d);
     }
 
     if (params.size() != (deformed ? 4 : 2))

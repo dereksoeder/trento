@@ -7,6 +7,7 @@
 #include "catch.hpp"
 #include "util.h"
 
+#include "../src/eventqty.h"
 #include "../src/nucleus.h"
 #include "../src/random.h"
 
@@ -43,6 +44,7 @@ TEST_CASE( "event" ) {
         {"nucleon-width", width},
         {"constit-width", width},
         {"constit-number", 1},
+        {"columns", DefaultEventQuantityList},
     });
 
     Event event{var_map};
@@ -168,7 +170,8 @@ TEST_CASE( "event" ) {
       {"normalization", 1.},
       {"reduced-thickness", 0.},
       {"grid-max", 10.},
-      {"grid-step", 0.3}
+      {"grid-step", 0.3},
+      {"columns", DefaultEventQuantityList}
   });
 
   Event event{var_map};

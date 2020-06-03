@@ -3,6 +3,8 @@
 add_library(${LIBRARY_NAME} STATIC
   collider.cxx
   event.cxx
+  eventbin.cxx
+  eventqty.cxx
   hdf5_utils.cxx
   nucleon.cxx
   nucleus.cxx

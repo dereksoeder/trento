@@ -9,6 +9,7 @@
 #include "catch.hpp"
 #include "util.h"
 
+#include "../src/eventqty.h"
 #include "../src/nucleus.h"
 #include "../src/random.h"
 #include <boost/math/constants/constants.hpp>
@@ -31,6 +32,7 @@ TEST_CASE( "nucleon" ) {
       {"nucleon-width", width},
       {"constit-width", width},
       {"constit-number", 1},
+      {"columns", DefaultEventQuantityList},
   });
 
   NucleonCommon nc{var_map};

@@ -81,11 +81,11 @@ class Collider {
   /// entire impact parameter and the proton would not be offset at all.
   const double asymmetry_;
 
-  /// The event instance.
-  Event event_;
-
   /// The output instance.
   Output output_;
+
+  /// The event instance.
+  Event event_;  // must be initialized last
 };
 
 }  // namespace trento

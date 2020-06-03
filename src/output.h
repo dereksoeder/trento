@@ -5,13 +5,31 @@
 #ifndef OUTPUT_H
 #define OUTPUT_H
 
-#include <functional>
+#include <memory>
 #include <utility>
 #include <vector>
 
+#include "eventqty.h"
 #include "fwd_decl.h"
 
 namespace trento {
+
+class OutputWriter {
+ public:
+  // needs to exist so derived writers will be destroyed when `Output::writers_` is destroyed
+  virtual ~OutputWriter() = default;
+
+  /// Writes any initial output before event processing begins.
+  virtual void start() { }
+
+  /// Handles the next event to be output.
+  /// Implementations must not assume that 'event' will remain valid and unchanged after returning.
+  virtual void process(const Event& event) = 0;
+
+  /// Writes any final output after all events have been processed.
+  /// May not be invoked in the event of an error.
+  virtual void finish() { };
+};
 
 /// Simple interface for outputting event data.  Determines which output formats
 /// to create based on the configuration and writes those formats when called.
@@ -20,29 +38,29 @@ class Output {
   /// Instantiate from the configuration.
   Output(const VarMap& var_map);
 
-  /// \rst
-  /// Call the functor to output event data.  Arguments are perfect-forwarded to
-  /// each output function.  The required arguments are
-  ///
-  /// - ``int`` event number
-  /// - ``double`` impact parameter
-  /// - ``int`` binary collisions
-  /// - ``const Event&`` Event object
-  ///
-  /// \endrst
-  template <typename... Args>
-  void operator()(Args&&... args) const;
+  /// Output any initial information before event processing begins.
+  void start() const;
+
+  /// Output event data.
+  void operator()(const Event& event) const;
+
+  /// Store external values in the event and output event data.
+  void operator()(int nevent, double impact_param, int ncoll, Event& event) const;
+
+  /// Output any final information after event processing ends.
+  void finish() const;
+
+  /// Get list of event quantities that output writers require to be computed.
+  const std::vector<EventQuantity>& required_quantities() const
+  { return required_quantities_; }
 
  private:
   /// Internal storage of output functions.
-  std::vector<std::function<void(int, double, int, const Event&)>> writers_;
-};
+  std::vector<std::unique_ptr<OutputWriter>> writers_;
 
-template <typename... Args>
-void Output::operator()(Args&&... args) const {
-  for (const auto& write : writers_)
-    write(std::forward<Args>(args)...);
-}
+  /// Event quantities required by output writers.
+  std::vector<EventQuantity> required_quantities_;
+};
 
 }  // namespace trento
 

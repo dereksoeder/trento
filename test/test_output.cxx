@@ -11,6 +11,7 @@
 #include <boost/filesystem/fstream.hpp>
 
 #include "../src/event.h"
+#include "../src/eventqty.h"
 #include "../src/hdf5_utils.h"
 #include "../src/nucleus.h"
 
@@ -28,6 +29,7 @@ TEST_CASE( "output" ) {
     {"nucleon-width", 0.5},
     {"constit-width", 0.5},
     {"constit-number", 1},
+    {"columns", DefaultEventQuantityList},
   });
 
   // create a test event
@@ -49,8 +51,10 @@ TEST_CASE( "output" ) {
 
   SECTION( "no output" ) {
     capture_stdout capture;
-    Output output{make_var_map({{"quiet", true}, {"number-events", 1}})};
+    Output output{make_var_map({{"quiet", true}, {"number-events", 1}, {"columns", DefaultEventQuantityList}})};
+    output.start();
     output(1, b, 0, event);
+    output.finish();
     CHECK( capture.stream.str().empty() );  // stdout should be empty
   }
 
@@ -58,8 +62,10 @@ TEST_CASE( "output" ) {
     // write event 0 to stdout for the given number of events
     auto first_line = [&b, &event](int nev) {
       capture_stdout capture;
-      Output output{make_var_map({{"quiet", false}, {"number-events", nev}})};
+      Output output{make_var_map({{"quiet", false}, {"number-events", nev}, {"columns", DefaultEventQuantityList}})};
+      output.start();
       output(0, b, 0, event);
+      output.finish();
       std::string line;
       std::getline(capture.stream, line);
       return line;
@@ -82,8 +88,10 @@ TEST_CASE( "output" ) {
     char end;
     {
       capture_stdout capture;
-      Output output{make_var_map({{"quiet", false}, {"number-events", 1}})};
+      Output output{make_var_map({{"quiet", false}, {"number-events", 1}, {"columns", DefaultEventQuantityList}})};
+      output.start();
       output(0, b, 0, event);
+      output.finish();
       capture.stream >> num >> impact >> npart >> mult >> e2 >> e3 >> e4 >> e5 >> std::ws;
       end = capture.stream.get();
     }
@@ -109,7 +117,8 @@ TEST_CASE( "output" ) {
       {"quiet", false},
       {"no-header", false},
       {"number-events", 50},
-      {"output", temp.path}
+      {"output", temp.path},
+      {"columns", DefaultEventQuantityList}
     });
     Output output{output_var_map};
 
@@ -119,8 +128,10 @@ TEST_CASE( "output" ) {
     {
       // output two events and verify two lines were printed to stdout
       capture_stdout capture;
+      output.start();
       output(3, b, 0, event);
       output(27, b, 0, event);
+      output.finish();
       int n = 0;
       std::string line;
       while (std::getline(capture.stream, line)) { ++n; }
@@ -194,12 +205,16 @@ TEST_CASE( "output" ) {
     auto output_var_map = make_var_map({
       {"quiet", true},
       {"number-events", nev},
-      {"output", temp.path}
+      {"output", temp.path},
+      {"columns", DefaultEventQuantityList}
     });
     Output output{output_var_map};
+    output.start();
 
     for (auto n = 0; n < nev; ++n)
       output(n, b, 0, event);
+
+    output.finish();
 
     {
       H5::H5File file{temp.path.string(), H5F_ACC_RDONLY};
@@ -259,13 +274,18 @@ TEST_CASE( "output" ) {
     }
 
     // should be able to write to an existing but empty file
-    Output{
+    Output output2{
       make_var_map({
         {"quiet", true},
         {"number-events", 1},
-        {"output", temp2.path}
+        {"output", temp2.path},
+        {"columns", DefaultEventQuantityList}
       })
-    }(0, b, 0, event);
+    };
+
+    output2.start();
+    output2(0, b, 0, event);
+    output2.finish();
 
     CHECK( fs::file_size(temp2.path) > 0);
   }
