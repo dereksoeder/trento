@@ -94,22 +94,23 @@ static int binary_search_bins_descending(const std::vector<double>& edges, doubl
 
 }  // unnamed namespace
 
-EventBinner::EventBinner(const std::vector<EventQuantity>& columns)
-  : columns_(columns)
+EventBinner::EventBinner(const std::vector<EventQuantity>& event_columns)
+  : event_columns_(event_columns),
+    num_all_columns_(event_columns_.size())
 {
-  for (auto qty : columns_)
+  for (auto qty : event_columns_)
     data_[qty];  // creates entry if it does not exist
 }
 
 void EventBinner::set_subsample(size_t count) {
-  if (numevents_ > 0)
+  if (state_ != BinnerConfiguring)
     throw std::logic_error{"cannot reconfigure binner once processing has started"};
 
   subsample_ = count;
 }
 
 void EventBinner::add_axis(EventQuantity qty, std::vector<double>&& edges) {
-  if (numevents_ > 0)
+  if (state_ != BinnerConfiguring)
     throw std::logic_error{"cannot reconfigure binner once processing has started"};
 
   validate_edges(edges);
@@ -121,7 +122,7 @@ void EventBinner::add_axis(EventQuantity qty, std::vector<double>&& edges) {
 }
 
 void EventBinner::add_axis_percentile(EventQuantity qty, std::vector<double>&& edges) {
-  if (numevents_ > 0)
+  if (state_ != BinnerConfiguring)
     throw std::logic_error{"cannot reconfigure binner once processing has started"};
 
   validate_edges(edges);
@@ -134,7 +135,7 @@ void EventBinner::add_axis_percentile(EventQuantity qty, std::vector<double>&& e
 }
 
 void EventBinner::add_axis_percentile(EventQuantity qty, std::vector<double>&& edges, double include_value, bool in_last_bin) {
-  if (numevents_ > 0)
+  if (state_ != BinnerConfiguring)
     throw std::logic_error{"cannot reconfigure binner once processing has started"};
 
   validate_edges(edges);
@@ -147,7 +148,7 @@ void EventBinner::add_axis_percentile(EventQuantity qty, std::vector<double>&& e
 }
 
 void EventBinner::add_axis_percentile(EventQuantity qty, std::vector<double>&& edges, double include_first, double include_last) {
-  if (numevents_ > 0)
+  if (state_ != BinnerConfiguring)
     throw std::logic_error{"cannot reconfigure binner once processing has started"};
 
   validate_edges(edges);
@@ -160,7 +161,7 @@ void EventBinner::add_axis_percentile(EventQuantity qty, std::vector<double>&& e
 }
 
 void EventBinner::add_discard(EventQuantity qty, bool greater_than, double value) {
-  if (numevents_ > 0)
+  if (state_ != BinnerConfiguring)
     throw std::logic_error{"cannot reconfigure binner once processing has started"};
 
   data_[qty];  // creates entry if it does not exist
@@ -170,7 +171,7 @@ void EventBinner::add_discard(EventQuantity qty, bool greater_than, double value
 }
 
 void EventBinner::add_discard_percentile(EventQuantity qty, bool greater_than, double percentile) {
-  if (numevents_ > 0)
+  if (state_ != BinnerConfiguring)
     throw std::logic_error{"cannot reconfigure binner once processing has started"};
 
   data_[qty];  // creates entry if it does not exist
@@ -180,11 +181,25 @@ void EventBinner::add_discard_percentile(EventQuantity qty, bool greater_than, d
   delay_binning_ = true;
 }
 
+void EventBinner::add_power_columns(const std::vector<std::pair<EventQuantity, double>>& power_columns) {
+  if (state_ != BinnerConfiguring)
+    throw std::logic_error{"cannot reconfigure binner once processing has started"};
+
+  for (const auto& column : power_columns)
+    data_[column.first];  // creates entry if it does not exist
+
+  power_columns_.insert(std::end(power_columns_), std::begin(power_columns), std::end(power_columns));
+  num_all_columns_ += power_columns.size();
+}
+
 void EventBinner::start() {
+  if (state_ != BinnerConfiguring)
+    throw std::logic_error{"cannot call start() twice"};
+
   if (axes_.size() == 0)
     throw std::invalid_argument{"no bin edges were supplied"};
 
-  size_t limit = ((std::numeric_limits<size_t>::max() / 2) / sizeof(decltype(bin_sums_)::value_type)) / std::max(columns_.size(), static_cast<size_t>(1));
+  size_t limit = ((std::numeric_limits<size_t>::max() / 2) / sizeof(decltype(bin_sums_)::value_type)) / std::max(num_all_columns_, static_cast<size_t>(1));
   size_t numbins = 1;
 
   for (const auto& axis : axes_) {
@@ -198,10 +213,15 @@ void EventBinner::start() {
   }
 
   bin_counts_.resize(numbins);
-  bin_sums_.resize(numbins * columns_.size());
+  bin_sums_.resize(numbins * num_all_columns_);
+
+  state_ = BinnerProcessing;
 }
 
 void EventBinner::process(const Event& event) {
+  if (state_ != BinnerProcessing)
+    throw std::logic_error{"call start() before processing events"};
+
   ++numevents_;
 
   if (delay_binning_) {
@@ -218,10 +238,29 @@ void EventBinner::process(const Event& event) {
 }
 
 void EventBinner::finish() {
+  if (state_ != BinnerProcessing)
+    throw std::logic_error{"finish() can only be called during event processing"};
+
   if (delay_binning_) {
     subsample_ = 0;
     resolve_percentiles();
   }
+
+  state_ = BinnerFinished;
+}
+
+EventBinner::bin_iterator EventBinner::begin() const {
+  if (state_ != BinnerFinished)
+    throw std::logic_error{"call finish() before accessing bins"};
+
+  return bin_iterator(*this, 0);
+}
+
+EventBinner::bin_iterator EventBinner::end() const {
+  if (state_ != BinnerFinished)
+    throw std::logic_error{"call finish() before accessing bins"};
+
+  return bin_iterator(*this, bin_counts_.size());
 }
 
 bool EventBinner::should_discard(const Event& event) const {
@@ -249,9 +288,17 @@ void EventBinner::bin_event(std::function<double(EventQuantity)> getter) {
 
   bin_counts_[index]++;
 
-  index *= columns_.size();
-  for (auto qty : columns_) {
+  index *= num_all_columns_;
+
+  for (auto qty : event_columns_) {
     auto value = getter(qty);
+    std::pair<double, double>& sums = bin_sums_[index++];
+    sums.first  += value;
+    sums.second += (value * value);
+  }
+
+  for (const auto& qtypower : power_columns_) {
+    auto value = std::pow(getter(qtypower.first), qtypower.second);
     std::pair<double, double>& sums = bin_sums_[index++];
     sums.first  += value;
     sums.second += (value * value);
@@ -387,6 +434,10 @@ void EventBinner::resolve_percentiles() {
 }
 
 
+//
+// EventBinnerHelper class
+//
+
 std::pair<double, bool> EventBinnerHelper::parse_cutoff(const std::string& str) {
   double d;
 
@@ -408,7 +459,7 @@ std::pair<double, bool> EventBinnerHelper::parse_cutoff(const std::string& str) 
   return std::make_pair(d / 100., true);
 }
 
-void EventBinnerHelper::parse_edges(std::string&& paramstr) {
+void EventBinnerHelper::parse_edges(const std::string& paramstr) {
   boost::char_separator<char> sep(",", "", boost::keep_empty_tokens);
   boost::tokenizer<boost::char_separator<char>> tokens(paramstr, sep);
 
@@ -416,7 +467,7 @@ void EventBinnerHelper::parse_edges(std::string&& paramstr) {
   if (it == std::end(tokens))
     throw std::invalid_argument{"bin edge list must begin with a quantity label"};
 
-  EventQuantity qty = EventQuantityList::lookup(*it);
+  auto qty = EventQuantityList::lookup(*it);
 
   std::vector<double> edges;
   bool pct = false;
@@ -466,7 +517,7 @@ void EventBinnerHelper::parse_edges(std::string&& paramstr) {
   require_quantity_callback_(qty);
 }
 
-void EventBinnerHelper::parse_discard(std::string&& inequality) {
+void EventBinnerHelper::parse_discard(const std::string& inequality) {
   boost::char_separator<char> sep("", "<>", boost::keep_empty_tokens);
   boost::tokenizer<boost::char_separator<char>> tokens(inequality, sep);
 
@@ -483,6 +534,25 @@ void EventBinnerHelper::parse_discard(std::string&& inequality) {
   else binner_.add_discard(qty, gt, cutoff.first);
 
   require_quantity_callback_(qty);
+}
+
+void EventBinnerHelper::parse_powercolumns(const std::string& columnsstr) {
+  std::vector<std::pair<EventQuantity, double>> power_columns;
+
+  boost::char_separator<char> sep(",", "", boost::keep_empty_tokens);
+  boost::tokenizer<boost::char_separator<char>> tokens(columnsstr, sep);
+
+  for (const auto& token : tokens) {
+    auto x = token.find('^');
+    auto qty = EventQuantityList::lookup(token.substr(0, x));
+    double power = (x == std::string::npos) ? 1. : std::stod(token.substr(x + 1));
+
+    power_columns.emplace_back(qty, power);
+
+    require_quantity_callback_(qty);
+  }
+
+  binner_.add_power_columns(power_columns);
 }
 
 void EventBinnerHelper::parse_directives(const std::string& directives) {
@@ -511,6 +581,12 @@ void EventBinnerHelper::parse_directives(const std::string& directives) {
         throw std::invalid_argument{"discard directive requires an inequality"};
 
       parse_discard(token.substr(x + 1));
+    }
+    else if (what == "powercolumns") {
+      if (x == std::string::npos)
+        throw std::invalid_argument{"powercolumns directive requires a list"};
+
+      parse_powercolumns(token.substr(x + 1));
     }
     else {
       unhandled_directive_callback_(token);

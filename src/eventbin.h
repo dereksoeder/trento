@@ -20,7 +20,7 @@ class EventBinnerHelper;
 
 class EventBinner {
  public:
-  EventBinner(const std::vector<EventQuantity>& columns);
+  EventBinner(const std::vector<EventQuantity>& event_columns);
 
   void set_subsample(size_t count);
 
@@ -36,13 +36,13 @@ class EventBinner {
 
   void add_discard_percentile(EventQuantity qty, bool greater_than, double percentile);
 
+  void add_power_columns(const std::vector<std::pair<EventQuantity, double>>& power_columns);
+
   void start();
 
   void process(const Event& event);
 
   void finish();
-
-  static void configure(EventBinner& binner, const std::string& directives);
 
   struct BinResult {
     std::vector<std::pair<double, double>> extents;  // {left edge, right edge} per axis
@@ -74,15 +74,15 @@ class EventBinner {
       ret.count = binner_.bin_counts_[index_];
 
       if (ret.count > 0) {
-        auto itsums = binner_.bin_sums_.cbegin() + static_cast<ptrdiff_t>(index_ * binner_.columns_.size());
-        for (size_t n = binner_.columns_.size(); n != 0; ++itsums, --n) {
+        auto itsums = binner_.bin_sums_.cbegin() + static_cast<ptrdiff_t>(index_ * binner_.num_all_columns_);
+        for (size_t n = binner_.num_all_columns_; n != 0; ++itsums, --n) {
           const auto& binsums = *itsums;
           auto mean  = binsums.first / static_cast<double>(ret.count);
           auto stdev = ((ret.count > 1) ? std::sqrt((binsums.second / static_cast<double>(ret.count)) - (mean * mean)) : 0);
-          ret.data.emplace_back( std::make_pair(mean, stdev) );
+          ret.data.emplace_back(mean, stdev);
         }
       } else {
-        ret.data.resize(binner_.columns_.size());  // use default values (zeroes)
+        ret.data.resize(binner_.num_all_columns_);  // use default values (zeroes)
       }
 
       auto tmpindex = index_;
@@ -97,20 +97,25 @@ class EventBinner {
     }
   } ;
 
-  bin_iterator begin() const {
-    if (delay_binning_)
-      throw std::logic_error{"cannot access bins until event percentiles have been resolved"};
+  bin_iterator begin() const;
 
-    return bin_iterator(*this, 0);
-  }
+  bin_iterator end() const;
 
-  bin_iterator end() const {
-    return bin_iterator(*this, bin_counts_.size());
-  }
+  static void configure(EventBinner& binner, const std::string& directives);
 
  private:
-  const std::vector<EventQuantity> columns_;
+  enum BinnerState {
+    BinnerConfiguring = 0,
+    BinnerProcessing,
+    BinnerFinished
+  } state_ = BinnerConfiguring;
+
+  const std::vector<EventQuantity> event_columns_;
   std::map<EventQuantity, std::vector<double>> data_;
+
+  std::vector<std::pair<EventQuantity, double>> power_columns_;
+
+  size_t num_all_columns_;
 
   struct BinAxis {
     BinAxis() = default;
@@ -203,11 +208,13 @@ class EventBinnerHelper {
 
   static std::pair<double, bool> parse_cutoff(const std::string& str);
 
-  void parse_edges(std::string&& paramstr);
+  void parse_edges(const std::string& paramstr);
 
-  void parse_discard(std::string&& inequality);
+  void parse_discard(const std::string& inequality);
 
   void parse_directives(const std::string& directives);
+
+  void parse_powercolumns(const std::string& columnsstr);
 
   EventBinner& binner_;
   const std::function<void(const std::string&)> unhandled_directive_callback_;
