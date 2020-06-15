@@ -67,6 +67,7 @@ Collider::Collider(const VarMap& var_map)
       bmin_(var_map["b-min"].as<double>()),
       bmax_(determine_bmax(var_map, *nucleusA_, *nucleusB_, nucleon_common_)),
       asymmetry_(determine_asym(*nucleusA_, *nucleusB_)),
+      notify_interval_(var_map["notify"].as<int>()),
       output_(var_map),
       event_(var_map, output_.required_quantities()) {
   // Constructor body begins here.
@@ -101,6 +102,10 @@ void Collider::run_events() {
 
     // Write event data.
     output_(event_);
+
+    int num = n + 1;
+    if (notify_interval_ > 0 && (num % notify_interval_) == 0)
+      std::cerr << "Generated " << num << ((num == 1) ? " event\n" : " events\n");
   }
 
   output_.finish();

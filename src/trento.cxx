@@ -109,7 +109,9 @@ int main(int argc, char* argv[]) {
      "event quantities to output")
     ("event-writer", po::value<std::vector<std::string>>()->value_name("directives")->multitoken()
      ->default_value({ "" }, "default"),
-     "configure additional event output writer(s)");
+     "configure additional event output writer(s)")
+    ("notify", po::value<int>()->value_name("INT")->default_value(0, "disabled"),
+     "periodically print progress to stderr");
 
   OptDesc phys_opts{"physical options"};
   phys_opts.add_options()
@@ -250,6 +252,9 @@ int main(int argc, char* argv[]) {
       const auto& qtys = var_map["columns"].as<EventQuantityList>().values;
       var_map.at("ncoll").value() = (std::find(std::begin(qtys), std::end(qtys), EventNumCollisions) != std::end(qtys));
     }
+
+    if (var_map["notify"].as<int>() < 0)
+      throw po::error{"notify interval must be positive"};
 
     double nucleon_width = var_map["nucleon-width"].as<double>();
     double constituent_width = var_map["constit-width"].as<double>();

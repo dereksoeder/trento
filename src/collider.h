@@ -81,6 +81,9 @@ class Collider {
   /// entire impact parameter and the proton would not be offset at all.
   const double asymmetry_;
 
+  /// How many events to generate before writing progress to stderr (0 to disable).
+  const int notify_interval_;
+
   /// The output instance.
   Output output_;
 
