@@ -33,7 +33,7 @@ bool is_Woods_Saxon_string(const std::string& species) {
   return (boost::starts_with(species, "WS:") || boost::starts_with(species, "DWS:"));
 }
 
-Nucleus* create_from_Woods_Saxon_string(const std::string& species, double nucleon_dmin) {
+Nucleus* create_from_Woods_Saxon_string(const std::string& species, double nucleon_dmin, double nucleon_dmin_relax) {
   try {
     bool deformed;
     if (boost::starts_with(species, "WS:"))
@@ -71,8 +71,8 @@ Nucleus* create_from_Woods_Saxon_string(const std::string& species, double nucle
       throw std::invalid_argument{"a cannot be negative"};
 
     if (deformed)
-      return new DeformedWoodsSaxonNucleus(static_cast<unsigned int>(n), params[0], params[1], params[2], params[3], nucleon_dmin);
-    else return new WoodsSaxonNucleus(static_cast<unsigned int>(n), params[0], params[1], nucleon_dmin);
+      return new DeformedWoodsSaxonNucleus(static_cast<unsigned int>(n), params[0], params[1], params[2], params[3], nucleon_dmin, nucleon_dmin_relax);
+    else return new WoodsSaxonNucleus(static_cast<unsigned int>(n), params[0], params[1], nucleon_dmin, nucleon_dmin_relax);
   }
   catch (const std::out_of_range&) { }
   catch (const std::invalid_argument&) { }
@@ -82,7 +82,7 @@ Nucleus* create_from_Woods_Saxon_string(const std::string& species, double nucle
 
 }  // unnamed namespace
 
-NucleusPtr Nucleus::create(const std::string& species, double nucleon_dmin) {
+NucleusPtr Nucleus::create(const std::string& species, double nucleon_dmin, double nucleon_dmin_relax) {
   // W-S params ref. in header
   // XXX: remember to add new species to the help output in main() and the readme
   if (species == "p")
@@ -91,46 +91,46 @@ NucleusPtr Nucleus::create(const std::string& species, double nucleon_dmin) {
     return NucleusPtr{new Deuteron{}};
   else if (species == "Cu")
     return NucleusPtr{new WoodsSaxonNucleus{
-       63, 4.20, 0.596, nucleon_dmin
+       63, 4.20, 0.596, nucleon_dmin, nucleon_dmin_relax
     }};
   else if (species == "Cu2")
     return NucleusPtr{new DeformedWoodsSaxonNucleus{
-       63, 4.20, 0.596, 0.162, -0.006, nucleon_dmin
+       63, 4.20, 0.596, 0.162, -0.006, nucleon_dmin, nucleon_dmin_relax
     }};
   else if (species == "Xe")
     return NucleusPtr{new WoodsSaxonNucleus{
-      129, 5.36, 0.590, nucleon_dmin
+      129, 5.36, 0.590, nucleon_dmin, nucleon_dmin_relax
     }};
   else if (species == "Xe2")
     return NucleusPtr{new DeformedWoodsSaxonNucleus{
-      129, 5.36, 0.590, 0.162, -0.003, nucleon_dmin
+      129, 5.36, 0.590, 0.162, -0.003, nucleon_dmin, nucleon_dmin_relax
     }};
   else if (species == "Au")
     return NucleusPtr{new WoodsSaxonNucleus{
-      197, 6.38, 0.535, nucleon_dmin
+      197, 6.38, 0.535, nucleon_dmin, nucleon_dmin_relax
     }};
   else if (species == "Au2")
     return NucleusPtr{new DeformedWoodsSaxonNucleus{
-      197, 6.38, 0.535, -0.131, -0.031, nucleon_dmin
+      197, 6.38, 0.535, -0.131, -0.031, nucleon_dmin, nucleon_dmin_relax
     }};
   else if (species == "Pb")
     return NucleusPtr{new WoodsSaxonNucleus{
-      208, 6.62, 0.546, nucleon_dmin
+      208, 6.62, 0.546, nucleon_dmin, nucleon_dmin_relax
     }};
   else if (species == "U")
     return NucleusPtr{new DeformedWoodsSaxonNucleus{
-      238, 6.81, 0.600, 0.280, 0.093, nucleon_dmin
+      238, 6.81, 0.600, 0.280, 0.093, nucleon_dmin, nucleon_dmin_relax
     }};
   else if (species == "U2")
     return NucleusPtr{new DeformedWoodsSaxonNucleus{
-      238, 6.86, 0.420, 0.265, 0.000, nucleon_dmin
+      238, 6.86, 0.420, 0.265, 0.000, nucleon_dmin, nucleon_dmin_relax
     }};
   else if (species == "U3")
     return NucleusPtr{new DeformedWoodsSaxonNucleus{
-      238, 6.67, 0.440, 0.280, 0.093, nucleon_dmin
+      238, 6.67, 0.440, 0.280, 0.093, nucleon_dmin, nucleon_dmin_relax
     }};
   else if (is_Woods_Saxon_string(species))
-    return NucleusPtr{create_from_Woods_Saxon_string(species, nucleon_dmin)};
+    return NucleusPtr{create_from_Woods_Saxon_string(species, nucleon_dmin, nucleon_dmin_relax)};
   // Read nuclear configurations from HDF5.
   else if (hdf5::filename_is_hdf5(species)) {
 #ifdef TRENTO_HDF5
@@ -226,9 +226,10 @@ void Deuteron::sample_nucleons_impl() {
   set_nucleon_position(*std::next(begin()), -x, -y, -z);
 }
 
-MinDistNucleus::MinDistNucleus(std::size_t A, double dmin)
+MinDistNucleus::MinDistNucleus(std::size_t A, double dmin, double dmin_relax)
     : Nucleus(A),
-      dminsq_(dmin*dmin)
+      dminsq_(dmin*dmin),
+      dmin_relaxsq_(dmin_relax*dmin_relax)
 {}
 
 bool MinDistNucleus::is_too_close(const_iterator nucleon) const {
@@ -247,8 +248,8 @@ bool MinDistNucleus::is_too_close(const_iterator nucleon) const {
 // Extend the W-S dist out to R + 10a; for typical values of (R, a), the
 // probability of sampling a nucleon beyond this radius is O(10^-5).
 WoodsSaxonNucleus::WoodsSaxonNucleus(
-    std::size_t A, double R, double a, double dmin)
-    : MinDistNucleus(A, dmin),
+    std::size_t A, double R, double a, double dmin, double dmin_relax)
+    : MinDistNucleus(A, dmin, dmin_relax),
       R_(R),
       a_(a),
       woods_saxon_dist_(1000, 0., R + 10.*a,
@@ -288,6 +289,8 @@ void WoodsSaxonNucleus::sample_nucleons_impl() {
 
     // Sample angles until the minimum distance criterion is satisfied.
     auto ntries = 1000;
+    auto checker = create_min_dist_checker();
+
     do {
       // Sample isotropic spherical angles.
       auto cos_theta = random::cos_theta<double>();
@@ -309,7 +312,7 @@ void WoodsSaxonNucleus::sample_nucleons_impl() {
       //          1.0 fm, ~0.005%
       //          1.5 fm, ~0.1%
       //          1.73 fm, ~1%
-    } while (is_too_close(nucleon) && --ntries > 0);  // 'ntries' will not decrement if 'is_too_close' returns false, important for failure check below
+    } while (checker.is_too_close(nucleon) && --ntries > 0);  // 'ntries' will not decrement if 'is_too_close' returns false, important for failure check below
 
     if (!(ntries > 0))
       record_failure();
@@ -321,8 +324,8 @@ void WoodsSaxonNucleus::sample_nucleons_impl() {
 // "effective" radius.  The numerical coefficients for beta2 and beta4 are the
 // approximate values of Y20 and Y40 at theta = 0.
 DeformedWoodsSaxonNucleus::DeformedWoodsSaxonNucleus(
-    std::size_t A, double R, double a, double beta2, double beta4, double dmin)
-    : MinDistNucleus(A, dmin),
+    std::size_t A, double R, double a, double beta2, double beta4, double dmin, double dmin_relax)
+    : MinDistNucleus(A, dmin, dmin_relax),
       R_(R),
       a_(a),
       beta2_(beta2),
@@ -419,6 +422,8 @@ void DeformedWoodsSaxonNucleus::sample_nucleons_impl() {
 
     // Sample azimuthal angle until the minimum distance criterion is satisfied.
     auto ntries = 1000;
+    auto checker = create_min_dist_checker();
+
     do {
       // Choose azimuthal angle.
       auto phi = random::phi<double>();
@@ -449,7 +454,7 @@ void DeformedWoodsSaxonNucleus::sample_nucleons_impl() {
       //          1.0 fm, ~0.03%
       //          1.3 fm, ~0.3%
       //          1.5 fm, ~1.2%
-    } while (is_too_close(nucleon) && --ntries > 0);  // 'ntries' will not decrement if 'is_too_close' returns false, important for failure check below
+    } while (checker.is_too_close(nucleon) && --ntries > 0);  // 'ntries' will not decrement if 'is_too_close' returns false, important for failure check below
 
     if (!(ntries > 0))
       record_failure();

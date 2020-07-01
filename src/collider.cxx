@@ -26,8 +26,9 @@ namespace {
 NucleusPtr create_nucleus(const VarMap& var_map, std::size_t index) {
   const auto& species = var_map["projectile"]
                         .as<std::vector<std::string>>().at(index);
-  const auto& nucleon_dmin = var_map["nucleon-min-dist"].as<double>();
-  return Nucleus::create(species, nucleon_dmin);
+  auto nucleon_dmin = var_map["nucleon-min-dist"].as<double>();
+  auto nucleon_dmin_relax = var_map["relax-nucleon-min-dist"].as<double>();
+  return Nucleus::create(species, nucleon_dmin, nucleon_dmin_relax);
 }
 
 // Determine the maximum impact parameter.  If the configuration contains a
@@ -67,7 +68,7 @@ Collider::Collider(const VarMap& var_map)
       bmin_(var_map["b-min"].as<double>()),
       bmax_(determine_bmax(var_map, *nucleusA_, *nucleusB_, nucleon_common_)),
       asymmetry_(determine_asym(*nucleusA_, *nucleusB_)),
-      notify_interval_(var_map["notify"].as<int>()),
+      progress_interval_(var_map["progress"].as<int>()),
       output_(var_map),
       event_(var_map, output_.required_quantities()) {
   // Constructor body begins here.
@@ -104,7 +105,7 @@ void Collider::run_events() {
     output_(event_);
 
     int num = n + 1;
-    if (notify_interval_ > 0 && (num % notify_interval_) == 0)
+    if (progress_interval_ > 0 && (num % progress_interval_) == 0)
       std::cerr << "Generated " << num << ((num == 1) ? " event\n" : " events\n");
   }
 

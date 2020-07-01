@@ -110,7 +110,7 @@ int main(int argc, char* argv[]) {
     ("event-writer", po::value<std::vector<std::string>>()->value_name("directives")->multitoken()
      ->default_value({ "" }, "default"),
      "configure additional event output writer(s)")
-    ("notify", po::value<int>()->value_name("INT")->default_value(0, "disabled"),
+    ("progress", po::value<int>()->value_name("INT")->default_value(0, "disabled"),
      "periodically print progress to stderr");
 
   OptDesc phys_opts{"physical options"};
@@ -133,6 +133,9 @@ int main(int argc, char* argv[]) {
     ("nucleon-min-dist,d",
      po::value<double>()->value_name("FLOAT")->default_value(0., "0"),
      "minimum nucleon-nucleon distance [fm]")
+    ("relax-nucleon-min-dist",
+     po::value<double>()->value_name("FLOAT")->default_value(1., "1"),
+     "multiply dmin by a factor after each nucleon placement attempt")
     ("cross-section,x",
      po::value<double>()->value_name("FLOAT")->default_value(6.4, "6.4"),
      "inelastic nucleon-nucleon cross section sigma_NN [fm^2]")
@@ -253,12 +256,13 @@ int main(int argc, char* argv[]) {
       var_map.at("ncoll").value() = (std::find(std::begin(qtys), std::end(qtys), EventNumCollisions) != std::end(qtys));
     }
 
-    if (var_map["notify"].as<int>() < 0)
-      throw po::error{"notify interval must be positive"};
+    if (var_map["progress"].as<int>() < 0)
+      throw po::error{"progress interval must be positive"};
 
     double nucleon_width = var_map["nucleon-width"].as<double>();
     double constituent_width = var_map["constit-width"].as<double>();
     int constituent_number = var_map["constit-number"].as<int>();
+    double relax = var_map["relax-nucleon-min-dist"].as<double>();
 
     // Constituent and nucleon widths must be non-negative.
     if ((nucleon_width < 0) || (constituent_width < 0))
@@ -271,6 +275,10 @@ int main(int argc, char* argv[]) {
     // Cannot fit nucleon width using single constituent if different sizes.
     if ((constituent_width < nucleon_width) && constituent_number == 1)
       throw po::error{"cannot fit nucleon width using single constituent if different sizes"};
+
+    // dmin relaxation factor must be in 0..1 (it wouldn't make sense for dmin to grow, or flip sign)
+    if (relax < 0. || relax > 1. || !std::isfinite(relax))
+      throw po::error{"dmin relaxation factor must be a fraction from 0 to 1"};
 
     // Save all the final values into var_map.
     // Exceptions may occur here.

@@ -58,7 +58,7 @@ class Nucleus {
   /// \return a smart pointer \c std::unique_ptr<Nucleus>
   ///
   /// \throw std::invalid_argument for unknown species
-  static NucleusPtr create(const std::string& species, double nucleon_dmin = 0);
+  static NucleusPtr create(const std::string& species, double nucleon_dmin = 0, double nucleon_dmin_relax = 1.);
 
   /// Default virtual destructor for abstract base class.
   virtual ~Nucleus() = default;
@@ -199,7 +199,7 @@ class MinDistNucleus : public Nucleus {
  protected:
   /// \param A number of nucleons
   /// \param dmin minimum nucleon-nucleon distance (optional, default zero)
-  MinDistNucleus(std::size_t A, double dmin = 0);
+  MinDistNucleus(std::size_t A, double dmin = 0, double dmin_relax = 1.);
 
   /// \rst
   /// Check if a ``Nucleon`` is too close (within the minimum distance) of any
@@ -208,9 +208,45 @@ class MinDistNucleus : public Nucleus {
   /// \endrst
   bool is_too_close(const_iterator nucleon) const;
 
+  class RelaxingMinDistChecker {
+   public:
+    RelaxingMinDistChecker(const_iterator first_nucleon, double dminsq, double dmin_relaxsq) :
+      first_nucleon_(first_nucleon),
+      dminsq_(dminsq),
+      dmin_relaxsq_(dmin_relaxsq)
+    {}
+
+    bool is_too_close(const_iterator nucleon) {
+      if (dminsq_ < 1e-10)
+        return false;
+      for (const_iterator nucleon2 = first_nucleon_; nucleon2 != nucleon; ++nucleon2) {
+        auto dx = nucleon->x() - nucleon2->x();
+        auto dy = nucleon->y() - nucleon2->y();
+        auto dz = nucleon->z() - nucleon2->z();
+        if (dx*dx + dy*dy + dz*dz < dminsq_) {
+          dminsq_ *= dmin_relaxsq_;
+          return true;
+        }
+      }
+      return false;
+    }
+
+   private:
+    const const_iterator first_nucleon_;
+    double dminsq_;
+    const double dmin_relaxsq_;
+  };
+
+  RelaxingMinDistChecker create_min_dist_checker() const {
+    return RelaxingMinDistChecker(begin(), dminsq_, dmin_relaxsq_);
+  }
+
  private:
   /// Internal storage of squared minimum distance.
   const double dminsq_;
+
+  /// Factor by which to relax `dmin` after each nucleon placement attempt.
+  const double dmin_relaxsq_;
 };
 
 /// \rst
@@ -230,7 +266,7 @@ class WoodsSaxonNucleus : public MinDistNucleus {
   /// \param R Woods-Saxon radius
   /// \param a Woods-Saxon surface thickness
   /// \param dmin minimum nucleon-nucleon distance (optional, default zero)
-  WoodsSaxonNucleus(std::size_t A, double R, double a, double dmin = 0);
+  WoodsSaxonNucleus(std::size_t A, double R, double a, double dmin = 0, double dmin_relax = 1.);
 
   /// The radius of a Woods-Saxon Nucleus is computed from the parameters (R, a).
   virtual double radius() const override;
@@ -269,7 +305,7 @@ class DeformedWoodsSaxonNucleus : public MinDistNucleus {
   /// \param beta4 Woods-Saxon deformation parameter
   /// \param dmin minimum nucleon-nucleon distance (optional, default zero)
   DeformedWoodsSaxonNucleus(std::size_t A, double R, double a,
-                            double beta2, double beta4, double dmin = 0);
+                            double beta2, double beta4, double dmin = 0, double dmin_relax = 1.);
 
   /// The radius of a deformed Woods-Saxon Nucleus is computed from the
   /// parameters (R, a, beta2, beta4).
