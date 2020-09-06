@@ -184,6 +184,101 @@ class CSVSummaryTextWriter : public OutputWriter {
   bool header_ = false;
 } ;
 
+class SummaryBinaryWriter : public OutputWriter {
+ public:
+  SummaryBinaryWriter(
+    const VarMap& var_map,
+    const std::string& directives,
+    std::vector<EventQuantity>& required_quantities)
+  : columns_(var_map["columns"].as<EventQuantityList>().values),
+    buf_(65536)
+  {
+    if (sizeof(double) != sizeof(int64_t))
+      throw std::runtime_error{"native double-precision floating-point type must be 64-bit"};
+
+    boost::char_separator<char> sep(":", "", boost::keep_empty_tokens);
+    boost::tokenizer<boost::char_separator<char>> tokens(directives, sep);
+
+    auto it = ++std::begin(tokens);  // skips initial "binary:"
+    if (it == std::end(tokens))
+      throw std::invalid_argument{"output file path is required"};
+
+    auto outpath = *it;
+
+    if (boost::starts_with(outpath, "\"")) {
+      size_t q1, q2;
+      if ( (q1 = directives.find('"'))         == std::string::npos ||
+           (q2 = directives.find('"', q1 + 1)) == std::string::npos ||
+                 directives.find('"', q2 + 1)  != std::string::npos ) {
+        throw std::invalid_argument{"directives may contain exactly two double-quotes"};
+      }
+
+      outpath = directives.substr(q1 + 1, q2 - (q1 + 1));
+
+      while (it != std::end(tokens) && !(boost::ends_with(*it, "\"")))
+        it++;
+
+      if (it == std::end(tokens))
+        throw std::invalid_argument{"missing end-quote"};
+    }
+
+    for (++it; it != std::end(tokens); ++it) {  // skips output path
+      const auto& token = *it;
+
+      if (token == "noint")
+        noint_ = true;
+      else throw std::invalid_argument{"unrecognized directive"};
+    }
+
+    required_quantities.insert(std::end(required_quantities), std::begin(columns_), std::end(columns_));
+
+    os_.open(outpath, std::ios::out | std::ios::binary | std::ios::trunc);
+  }
+
+  virtual void process(const Event& event) {
+    for (auto qty : columns_) {
+      union {
+        int64_t n;
+        double d;
+      } value;
+
+      bool isint = EventQuantityList::is_integer(qty);
+
+      if (!isint || noint_)
+        value.d = (isint ? static_cast<double>(event.get<int>(qty)) : event.get<double>(qty));
+      else if (isint)
+        value.n = event.get<int>(qty);
+      else value.d = event.get<double>(qty);
+
+      if (buf_head_ + sizeof(value) > buf_.size())
+        write_buf();
+
+      memcpy(&(buf_[buf_head_]), &value, sizeof(value));
+      buf_head_ += sizeof(value);
+    }
+  }
+
+  virtual void finish() {
+    write_buf();
+  }
+
+ private:
+  void write_buf() {
+    if (buf_head_ == 0)
+      return;
+
+    os_.write(&(buf_.front()), static_cast<std::streamsize>(buf_head_));
+    buf_head_ = 0;
+  }
+
+  std::ofstream os_;
+  const std::vector<EventQuantity> columns_;
+
+  std::vector<char> buf_;
+  size_t buf_head_ = 0;
+  bool noint_ = false;
+} ;
+
 class GridVisualizerTextWriter : public OutputWriter {
  public:
   GridVisualizerTextWriter(std::ostream& os) :
@@ -497,6 +592,11 @@ Output::Output(const VarMap& var_map) {
         writers_.emplace_back(
           std::unique_ptr<OutputWriter> { new CSVSummaryTextWriter(var_map, std::cout, directive, required_quantities_) }
         );
+    }
+    else if (writername == "binary") {
+      writers_.emplace_back(
+        std::unique_ptr<OutputWriter> { new SummaryBinaryWriter(var_map, directive, required_quantities_) }
+      );
     }
     else if (writername == "gridvisualizer") {
       if (!quiet)
