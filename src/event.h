@@ -134,6 +134,8 @@ class Event {
       return static_cast<T>(iycm_);
      case EventEpsilon_mn:
       return static_cast<T>( eccentricity_mn_.at( std::make_pair(EventQuantity_GetSubscript1(id), EventQuantity_GetSubscript2(id)) ) );
+     case EventEpsilonArg_mn:
+      return static_cast<T>( eccentricity_mn_arg_.at( std::make_pair(EventQuantity_GetSubscript1(id), EventQuantity_GetSubscript2(id)) ) );
      default:
       throw std::invalid_argument{"unrecognized event quantity identifier"};
     }
@@ -203,11 +205,14 @@ class Event {
   /// Number of nucleon placement failures that occurred for each nucleus.
   int failuresA_, failuresB_;
 
-  /// Eccentricity harmonics.
-  std::map<int, double> eccentricity_;
+  /// Eccentricity harmonics $\epsilon_n$.
+  std::map<int, double> eccentricity_;  // made redundant by `eccentricity_mn_` but retained for compatibility
 
-  /// Generalized $\epsilon_{m,n}$ eccentricity harmonics.
+  /// Generalized eccentricity harmonics $\epsilon_{m,n}$.
   std::map<std::pair<int, int>, double> eccentricity_mn_;
+
+  /// Arguments $\Phi_{m,n}$ associated with the generalized eccentricity harmonics $\epsilon_{m,n}$.
+  std::map<std::pair<int, int>, double> eccentricity_mn_arg_;
 
   /// Which $\epsilon_{m,n}$ need to be computed, or `-1` if none.
   const int max_eccentricity_m_;

@@ -53,6 +53,9 @@ typedef enum {
   /// Base value for all generalized eccentricity harmonics, $\epsilon_{m,n}$ (arXiv:1111.6538).
   EventEpsilon_mn,  // for a specific `m` and `n`, compute `EventEpsilon_mn + (m << 8) + (n << 16)`, or use `EventQuantity_Epsilon_mn`
 
+  /// Base value for arguments $\Phi_{m,n}$ associated with generalized eccentricity harmonics $\epsilon_{m,n}$.
+  EventEpsilonArg_mn,  // for a specific `m` and `n`, compute `EventEpsilonArg_mn + (m << 8) + (n << 16)`, or use `EventQuantity_EpsilonArg_mn`
+
   //
   //---- insert new quantities above this comment, before `EventQuantity_Mask` ----
   //
@@ -60,8 +63,11 @@ typedef enum {
 
 } EventQuantity;
 
-static constexpr EventQuantity EventQuantity_Epsilon_mn(int m, int n)   { return static_cast<EventQuantity>(EventEpsilon_mn + (m << 8) + (n << 16)); }
-static constexpr EventQuantity EventQuantity_Epsilon_n(int n)           { return EventQuantity_Epsilon_mn(n, n); }
+static constexpr EventQuantity EventQuantity_Epsilon_mn(int m, int n)    { return static_cast<EventQuantity>(EventEpsilon_mn + (m << 8) + (n << 16)); }
+static constexpr EventQuantity EventQuantity_Epsilon_n(int n)            { return EventQuantity_Epsilon_mn(n, n); }
+
+static constexpr EventQuantity EventQuantity_EpsilonArg_mn(int m, int n) { return static_cast<EventQuantity>(EventEpsilonArg_mn + (m << 8) + (n << 16)); }
+static constexpr EventQuantity EventQuantity_EpsilonArg_n(int n)         { return EventQuantity_EpsilonArg_mn(n, n); }
 
 static constexpr EventQuantity EventQuantity_GetClass(EventQuantity id) { return static_cast<EventQuantity>(id & EventQuantity_Mask); }
 static constexpr int EventQuantity_GetSubscript1(EventQuantity id)      { return (id >>  8) & 0xFF; }

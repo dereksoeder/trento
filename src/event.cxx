@@ -44,7 +44,9 @@ inline int get_max_eccentricity_m(const std::vector<EventQuantity>& quantities) 
   bool foundmn = false;
 
   for (auto qty : quantities) {
-    if (EventQuantity_GetClass(qty) == EventEpsilon_mn) {
+    if (EventQuantity_GetClass(qty) == EventEpsilon_mn ||
+        EventQuantity_GetClass(qty) == EventEpsilonArg_mn)
+    {
       int m = EventQuantity_GetSubscript1(qty);
       int n = EventQuantity_GetSubscript2(qty);
 
@@ -60,7 +62,9 @@ inline int get_max_eccentricity_n(const std::vector<EventQuantity>& quantities) 
   int max_n = -1;
 
   for (auto qty : quantities) {
-    if (EventQuantity_GetClass(qty) == EventEpsilon_mn) {
+    if (EventQuantity_GetClass(qty) == EventEpsilon_mn ||
+        EventQuantity_GetClass(qty) == EventEpsilonArg_mn)
+    {
       int n = EventQuantity_GetSubscript2(qty);
       max_n = std::max(max_n, n);
     }
@@ -217,6 +221,8 @@ void Event::compute_en(int max_n) {
     double wt = 0.;  // weight
     double finish() const  // compute final eccentricity
     { return std::abs(z) / std::fmax(wt, TINY); }
+    double arg() const
+    { return std::arg(z); }
   } en[NumEccentricityHarmonics];
 
   for (int iy = 0; iy < nsteps_; ++iy) {
@@ -252,8 +258,10 @@ void Event::compute_en(int max_n) {
     }
   }
 
-  for (int n = MinEccentricityHarmonic; n <= max_n; ++n)
+  for (int n = MinEccentricityHarmonic; n <= max_n; ++n) {
     eccentricity_[n] = eccentricity_mn_[std::make_pair(n,n)] = en[n - MinEccentricityHarmonic].finish();
+    eccentricity_mn_arg_[std::make_pair(n,n)] = en[n - MinEccentricityHarmonic].arg();
+  }
 }
 
 void Event::compute_emn(int max_m, int max_n) {
@@ -322,8 +330,10 @@ void Event::compute_emn(int max_m, int max_n) {
   for (int m = MinEccentricityHarmonic; m <= max_m; ++m) {
     double wt = std::fmax(weights[m - MinEccentricityHarmonic], TINY);
 
-    for (int n = MinEccentricityHarmonic; n <= max_n; ++n)
-      eccentricity_mn_[std::make_pair(m,n)] = std::abs(emn[m - MinEccentricityHarmonic][n - MinEccentricityHarmonic]) / wt;
+    for (int n = MinEccentricityHarmonic; n <= max_n; ++n) {
+      eccentricity_mn_[std::make_pair(m,n)]     = std::abs(emn[m - MinEccentricityHarmonic][n - MinEccentricityHarmonic]) / wt;
+      eccentricity_mn_arg_[std::make_pair(m,n)] = std::arg(emn[m - MinEccentricityHarmonic][n - MinEccentricityHarmonic]);
+    }
 
     if (m <= max_n)  // also update `eccentricity_` for `m == n` if applicable
       eccentricity_[m] = std::abs(emn[m - MinEccentricityHarmonic][m - MinEccentricityHarmonic]) / wt;

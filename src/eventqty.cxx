@@ -46,6 +46,14 @@ std::map<EventQuantity, std::vector<std::string>> EventQuantityLabels(
           if (m == n) labels.push_back("e" + std::to_string(n));
           labels.push_back("em" + std::to_string(m) + "n" + std::to_string(n));  // em2n2, em2n3, ... em8n7, em8n8
         }
+
+        id = EventQuantity_EpsilonArg_mn(m,n);
+        if (!init.count(id)) {
+          auto& labels = init[id];
+
+          if (m == n) labels.push_back("e" + std::to_string(n) + "phi");  // e2phi, e3phi, ... e8phi
+          labels.push_back("em" + std::to_string(m) + "n" + std::to_string(n) + "phi");  // em2n2phi, em2n3phi, ... em8n7phi, em8n8phi
+        }
       }
 
     return init;
