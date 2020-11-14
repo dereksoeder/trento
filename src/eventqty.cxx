@@ -51,8 +51,8 @@ std::map<EventQuantity, std::vector<std::string>> EventQuantityLabels(
         if (!init.count(id)) {
           auto& labels = init[id];
 
-          if (m == n) labels.push_back("e" + std::to_string(n) + "phi");  // e2phi, e3phi, ... e8phi
-          labels.push_back("em" + std::to_string(m) + "n" + std::to_string(n) + "phi");  // em2n2phi, em2n3phi, ... em8n7phi, em8n8phi
+          if (m == n) labels.push_back("e" + std::to_string(n) + "arg");  // e2arg, e3arg, ... e8arg
+          labels.push_back("em" + std::to_string(m) + "n" + std::to_string(n) + "arg");  // em2n2arg, em2n3arg, ... em8n7arg, em8n8arg
         }
       }
 

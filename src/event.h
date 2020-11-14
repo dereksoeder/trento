@@ -211,7 +211,7 @@ class Event {
   /// Generalized eccentricity harmonics $\epsilon_{m,n}$.
   std::map<std::pair<int, int>, double> eccentricity_mn_;
 
-  /// Arguments $\Phi_{m,n}$ associated with the generalized eccentricity harmonics $\epsilon_{m,n}$.
+  /// Arguments associated with the generalized eccentricity harmonics $\epsilon_{m,n}$.
   std::map<std::pair<int, int>, double> eccentricity_mn_arg_;
 
   /// Which $\epsilon_{m,n}$ need to be computed, or `-1` if none.

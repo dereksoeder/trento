@@ -53,7 +53,7 @@ typedef enum {
   /// Base value for all generalized eccentricity harmonics, $\epsilon_{m,n}$ (arXiv:1111.6538).
   EventEpsilon_mn,  // for a specific `m` and `n`, compute `EventEpsilon_mn + (m << 8) + (n << 16)`, or use `EventQuantity_Epsilon_mn`
 
-  /// Base value for arguments $\Phi_{m,n}$ associated with generalized eccentricity harmonics $\epsilon_{m,n}$.
+  /// Base value for arguments associated with generalized eccentricity harmonics $\epsilon_{m,n}$.
   EventEpsilonArg_mn,  // for a specific `m` and `n`, compute `EventEpsilonArg_mn + (m << 8) + (n << 16)`, or use `EventQuantity_EpsilonArg_mn`
 
   //
